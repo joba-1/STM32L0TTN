@@ -67,6 +67,8 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+void putstr( const char *str );
+void putul( unsigned long u );
 
 /* USER CODE END EFP */
 

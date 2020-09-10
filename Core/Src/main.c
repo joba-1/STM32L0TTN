@@ -24,7 +24,9 @@
 /* USER CODE BEGIN Includes */
 
 #include <bme280.h>
-volatile unsigned long wakeups = 0;
+#include <rfm95.h>
+#include <lorawan.h>
+#include <secconfig.h>
 
 /* USER CODE END Includes */
 
@@ -75,6 +77,10 @@ struct bme280_dev bme280_dev;
 struct bme280_data bme280_data;
 uint32_t bme280_delay;
 
+rfm95_t rfm95_dev;
+uint8_t rfm95_ver;
+lorawan_t lorawan;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -92,9 +98,6 @@ static void MX_ADC_Init(void);
 /* USER CODE BEGIN 0 */
 
 void putstr( const char *str ) {
-  // size_t len = 0;
-  // while(str[len]) len++;
-  // HAL_UART_Transmit(&hlpuart1, (uint8_t *)str, len, 10);
   LL_LPUART_Enable(LPUART1);
   while (*str) {
     while (!LL_LPUART_IsActiveFlag_TXE(LPUART1));
@@ -150,6 +153,15 @@ int8_t duplexSpi(uint8_t dev, uint8_t addr, uint8_t *data, uint16_t len) {
 
 uint8_t readPin(uint8_t dev) {
   return LL_GPIO_IsInputPinSet(pins[dev].port, pins[dev].pin);
+}
+
+
+uint8_t *serialize(uint8_t *data, uint32_t value, size_t size) {
+  while( size-- ) {
+    *(data++) = value & 0xff;
+    value >>= 8;
+  }
+  return data;
 }
 
 
@@ -230,6 +242,25 @@ void bme_print() {
 }
 
 
+void rfm_setup( uint32_t seed ) {
+  LL_GPIO_SetOutputPin(pins[RFM95_NSS_PIN_ID].port, pins[RFM95_NSS_PIN_ID].pin);
+
+  rfm95_dev.nss_pin_id = RFM95_NSS_PIN_ID;
+  rfm95_dev.dio0_pin_id = RFM95_DIO0_PIN_ID;
+  rfm95_dev.dio5_pin_id = RFM95_DIO5_PIN_ID;
+  rfm95_dev.spi_write = duplexSpi;
+  rfm95_dev.spi_read = duplexSpi;
+  rfm95_dev.delay = LL_mDelay;
+  rfm95_dev.pin_read = readPin;
+
+  while( rfm95_ver != 0x12 ) {
+    rfm95_ver = rfm95_init(&rfm95_dev, seed);
+  }
+
+  lorawan_init(&lorawan, &rfm95_dev);
+  lorawan_set_keys(&lorawan, NwkSkey, AppSkey, DevAddr);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -264,14 +295,15 @@ int main(void)
   MX_RTC_Init();
   MX_SPI1_Init();
   MX_ADC_Init();
+
   /* USER CODE BEGIN 2 */
 
   LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);
 
   putstr("\nStart");
 
-  unsigned long count = 0;
-  unsigned long standbys = HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0);
+  uint16_t frame_counter = (uint16_t)HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0);
+
   if(__HAL_PWR_GET_FLAG(PWR_FLAG_SB) != RESET) {
     putstr(" from standby");
     __HAL_PWR_CLEAR_FLAG(PWR_FLAG_SB);
@@ -281,6 +313,7 @@ int main(void)
   }
 
   bme_setup();
+  rfm_setup(frame_counter);
 
   /* USER CODE END 2 */
 
@@ -288,29 +321,42 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    putstr("\nLoop:"); putul(count++);
-    putstr(" wakeups:"); putul(wakeups);
-    putstr(" standbys:"); putul(standbys);
+    putstr(" standbys:"); putul(frame_counter);
 
     uint16_t mV = getVdda();
-    putstr(" Millivolts:"); putul(mV);
+    putstr(" mV:"); putul(mV);
 
     if( bme_read() ) {
       bme_print();
+
+      uint8_t Data[sizeof(bme280_data)+sizeof(mV)];
+      uint8_t *data = Data;
+      data = serialize(data, mV, sizeof(mV));
+      data = serialize(data, (uint32_t)bme280_data.temperature, sizeof(bme280_data.temperature));
+      data = serialize(data, bme280_data.humidity, sizeof(bme280_data.humidity));
+      serialize(data, bme280_data.pressure, sizeof(bme280_data.pressure));
+
+      putstr(" Send ");
+      putul(lorawan_send_data(&lorawan, Data, sizeof(Data), frame_counter)/1000);
+      putstr(" kHz");
     }
 
-    LL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+    LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);
 
-    if( count > 7 ) {
-      HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR0, ++standbys);
-      putstr(" standby "); putul(standbys);
-      HAL_PWREx_EnableUltraLowPower();
-      HAL_PWREx_EnableFastWakeUp();
-      __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
-      HAL_PWR_EnterSTANDBYMode();
-      putstr(" ERROR\n");
-    }
-    LL_mDelay(2000);
+    HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR0, ++frame_counter);
+
+    HAL_PWREx_EnableUltraLowPower();
+    HAL_PWREx_EnableFastWakeUp();
+    __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
+    HAL_PWR_EnterSTANDBYMode();
+
+    putstr(" Standby ERROR\n");
+
+    LL_mDelay(60000);
+
+    HAL_DeInit();
+    NVIC_SystemReset();
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -515,7 +561,7 @@ static void MX_RTC_Init(void)
   }
   /** Enable the WakeUp
   */
-  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 5, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
+  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 10, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
   {
     Error_Handler();
   }
