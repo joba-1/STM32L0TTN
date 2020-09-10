@@ -216,7 +216,9 @@ int bme_read() {
     bme280_get_sensor_data(BME280_ALL, &bme280_data, &bme280_dev);
   }
 
-  return bme280_data.humidity > 0;
+  return bme280_data.humidity >         0 && bme280_data.humidity  <= 100000
+      && bme280_data.pressure >     81000 && bme280_data.pressure  <  110000
+      && bme280_data.temperature > -50000 && bme280_data.temperature <= 9500;
 }
 
 
@@ -264,7 +266,10 @@ int main(void)
   MX_ADC_Init();
   /* USER CODE BEGIN 2 */
 
+  LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);
+
   putstr("\nStart");
+
   unsigned long count = 0;
   unsigned long standbys = HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0);
   if(__HAL_PWR_GET_FLAG(PWR_FLAG_SB) != RESET) {
