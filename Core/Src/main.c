@@ -22,11 +22,19 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+
+#include <bme280.h>
 volatile unsigned long wakeups = 0;
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+typedef struct pins {
+  GPIO_TypeDef *port;
+  uint32_t     pin;
+} pin_t;
 
 /* USER CODE END PTD */
 
@@ -40,15 +48,32 @@ volatile unsigned long wakeups = 0;
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-ADC_HandleTypeDef hadc;
-
-UART_HandleTypeDef hlpuart1;
 
 RTC_HandleTypeDef hrtc;
 
-SPI_HandleTypeDef hspi1;
-
 /* USER CODE BEGIN PV */
+
+// BME280 driver requires SPI read/write interface functions to use only one uint8 as device id.
+// STM32 pins in LL libs are defined by port and pin so pin alone cannot be used as device id.
+// To be able to reuse the same SPI functions for RFM and BME280, I use a dev -> port/pin mapping table
+pin_t pins[] = {
+  { BME_CS_GPIO_Port, BME_CS_Pin },
+  { RFM_CS_GPIO_Port, RFM_CS_Pin },
+  { RFM_D0_GPIO_Port, RFM_D0_Pin },
+  { RFM_D5_GPIO_Port, RFM_D5_Pin }
+};
+
+// must correspond to array index above
+typedef enum {
+  BME280_CS_PIN_ID,
+  RFM95_NSS_PIN_ID,
+  RFM95_DIO0_PIN_ID,
+  RFM95_DIO5_PIN_ID
+} pin_id_t;
+
+struct bme280_dev bme280_dev;
+struct bme280_data bme280_data;
+uint32_t bme280_delay;
 
 /* USER CODE END PV */
 
@@ -66,14 +91,21 @@ static void MX_ADC_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-int putstr( const char *str ) {
-  size_t len = 0;
-  while(str[len]) len++;
-  HAL_UART_Transmit(&hlpuart1, (uint8_t *)str, len, 10);
-  return len;
+void putstr( const char *str ) {
+  // size_t len = 0;
+  // while(str[len]) len++;
+  // HAL_UART_Transmit(&hlpuart1, (uint8_t *)str, len, 10);
+  LL_LPUART_Enable(LPUART1);
+  while (*str) {
+    while (!LL_LPUART_IsActiveFlag_TXE(LPUART1));
+    LL_LPUART_TransmitData8(LPUART1, (uint8_t)*str++);
+  }
+  while (!LL_LPUART_IsActiveFlag_TC(LPUART1));
+  LL_LPUART_Disable(LPUART1);
 }
 
-int putul( unsigned long u ) {
+
+void putul( unsigned long u ) {
   char num[11];
   char *d = &num[sizeof(num)-1];
   *d = '\0';
@@ -86,8 +118,116 @@ int putul( unsigned long u ) {
   else {
     *(--d) = '0';
   }
-  return putstr(d);
+  putstr(d);
 }
+
+
+int8_t duplexSpi(uint8_t dev, uint8_t addr, uint8_t *data, uint16_t len) {
+  LL_SPI_Enable(SPI1);
+  LL_GPIO_ResetOutputPin(pins[dev].port, pins[dev].pin);
+
+  LL_SPI_TransmitData8(SPI1, addr);
+
+  while (!LL_SPI_IsActiveFlag_RXNE(SPI1));   // wait for rx to finish
+  LL_SPI_ReceiveData8(SPI1);                 // avoid overflow
+
+  while (len--) {
+    while (!LL_SPI_IsActiveFlag_TXE(SPI1));  // wait for tx to finish
+    LL_SPI_TransmitData8(SPI1, *data);       // send data or generate clock for slave
+
+    while (!LL_SPI_IsActiveFlag_RXNE(SPI1)); // wait for rx to finish
+    *data = LL_SPI_ReceiveData8(SPI1);       // read receive result
+    data++;
+  }
+
+  while (LL_SPI_IsActiveFlag_BSY(SPI1));
+  LL_GPIO_SetOutputPin(pins[dev].port, pins[dev].pin);
+  LL_SPI_Disable(SPI1);
+
+  return 0;
+}
+
+
+uint8_t readPin(uint8_t dev) {
+  return LL_GPIO_IsInputPinSet(pins[dev].port, pins[dev].pin);
+}
+
+
+uint16_t getVdda() {
+  LL_ADC_Enable(ADC1);
+
+  while( !LL_ADC_IsActiveFlag_ADRDY(ADC1) );
+  LL_ADC_REG_StartConversion(ADC1);
+  while( !LL_ADC_IsActiveFlag_EOC(ADC1) );
+
+  uint16_t mV = LL_ADC_REG_ReadConversionData12(ADC1);
+  mV = VREFINT_CAL_VREF * (*VREFINT_CAL_ADDR) / mV;
+
+  while( !LL_ADC_IsActiveFlag_EOS(ADC1) );
+  LL_ADC_Disable(ADC1);
+
+  return mV;
+}
+
+
+void bme_setup() {
+  LL_GPIO_SetOutputPin(pins[BME280_CS_PIN_ID].port, pins[BME280_CS_PIN_ID].pin);
+
+  bme280_dev.dev_id = BME280_CS_PIN_ID;
+  bme280_dev.intf = BME280_SPI_INTF;
+  bme280_dev.read = duplexSpi;
+  bme280_dev.write = duplexSpi;
+  bme280_dev.delay_ms = LL_mDelay;
+
+  int bme_init = 0;
+
+  while( !bme_init ) {
+    if (bme280_init(&bme280_dev) == BME280_OK) {
+      bme280_dev.settings.osr_h = BME280_OVERSAMPLING_1X;
+      bme280_dev.settings.osr_p = BME280_OVERSAMPLING_16X;
+      bme280_dev.settings.osr_t = BME280_OVERSAMPLING_2X;
+      bme280_dev.settings.filter = BME280_FILTER_COEFF_16;
+      if( bme280_set_sensor_settings(BME280_OSR_PRESS_SEL | BME280_OSR_TEMP_SEL | BME280_OSR_HUM_SEL | BME280_FILTER_SEL, &bme280_dev) == BME280_OK ) {
+        bme280_delay = bme280_cal_meas_delay(&bme280_dev.settings);
+        putstr(" BME delayMs:"); putul(bme280_delay);
+        if( bme280_delay ) {
+          bme_init = 1;
+        }
+      }
+      else {
+        putstr(" BME setup error!\n");
+      }
+    }
+    else {
+      putstr(" BME init error!\n");
+    }
+
+    if( ! bme_init ) {
+      LL_mDelay(1000);
+    }
+  }
+}
+
+
+int bme_read() {
+  bme280_data.humidity = 0;
+  if( bme280_set_sensor_mode(BME280_FORCED_MODE, &bme280_dev) == BME280_OK ) {
+    bme280_dev.delay_ms(bme280_delay);
+    bme280_get_sensor_data(BME280_ALL, &bme280_data, &bme280_dev);
+  }
+
+  return bme280_data.humidity > 0;
+}
+
+
+void bme_print() {
+  putstr(" T:");      putul(bme280_data.temperature);
+  putstr(" c°C, H:"); putul(bme280_data.humidity);
+  putstr(" m%, P:");  putul(bme280_data.pressure);
+  putstr(" Pa");
+}
+
+
 /* USER CODE END 0 */
 
 /**
@@ -123,6 +263,7 @@ int main(void)
   MX_SPI1_Init();
   MX_ADC_Init();
   /* USER CODE BEGIN 2 */
+
   putstr("\nStart");
   unsigned long count = 0;
   unsigned long standbys = HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0);
@@ -134,6 +275,8 @@ int main(void)
     putstr(" from reset");
   }
 
+  bme_setup();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -143,7 +286,15 @@ int main(void)
     putstr("\nLoop:"); putul(count++);
     putstr(" wakeups:"); putul(wakeups);
     putstr(" standbys:"); putul(standbys);
-    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+
+    uint16_t mV = getVdda();
+    putstr(" Millivolts:"); putul(mV);
+
+    if( bme_read() ) {
+      bme_print();
+    }
+
+    LL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 
     if( count > 7 ) {
       HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR0, ++standbys);
@@ -154,7 +305,7 @@ int main(void)
       HAL_PWR_EnterSTANDBYMode();
       putstr(" ERROR\n");
     }
-    HAL_Delay(1000);
+    LL_mDelay(2000);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -222,42 +373,53 @@ static void MX_ADC_Init(void)
 
   /* USER CODE END ADC_Init 0 */
 
-  ADC_ChannelConfTypeDef sConfig = {0};
+  LL_ADC_REG_InitTypeDef ADC_REG_InitStruct = {0};
+  LL_ADC_InitTypeDef ADC_InitStruct = {0};
+
+  /* Peripheral clock enable */
+  LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_ADC1);
 
   /* USER CODE BEGIN ADC_Init 1 */
 
   /* USER CODE END ADC_Init 1 */
-  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  /** Configure Regular Channel
   */
-  hadc.Instance = ADC1;
-  hadc.Init.OversamplingMode = DISABLE;
-  hadc.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV1;
-  hadc.Init.Resolution = ADC_RESOLUTION_12B;
-  hadc.Init.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
-  hadc.Init.ScanConvMode = ADC_SCAN_DIRECTION_FORWARD;
-  hadc.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc.Init.ContinuousConvMode = DISABLE;
-  hadc.Init.DiscontinuousConvMode = DISABLE;
-  hadc.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc.Init.DMAContinuousRequests = DISABLE;
-  hadc.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
-  hadc.Init.Overrun = ADC_OVR_DATA_PRESERVED;
-  hadc.Init.LowPowerAutoWait = DISABLE;
-  hadc.Init.LowPowerFrequencyMode = ENABLE;
-  hadc.Init.LowPowerAutoPowerOff = DISABLE;
-  if (HAL_ADC_Init(&hadc) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /** Configure for the selected ADC regular channel to be converted.
+  LL_ADC_REG_SetSequencerChAdd(ADC1, LL_ADC_CHANNEL_VREFINT);
+  LL_ADC_SetCommonPathInternalCh(__LL_ADC_COMMON_INSTANCE(ADC1), LL_ADC_PATH_INTERNAL_VREFINT);
+  /** Common config
   */
-  sConfig.Channel = ADC_CHANNEL_VREFINT;
-  sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
-  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  ADC_REG_InitStruct.TriggerSource = LL_ADC_REG_TRIG_SOFTWARE;
+  ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;
+  ADC_REG_InitStruct.ContinuousMode = LL_ADC_REG_CONV_SINGLE;
+  ADC_REG_InitStruct.DMATransfer = LL_ADC_REG_DMA_TRANSFER_NONE;
+  ADC_REG_InitStruct.Overrun = LL_ADC_REG_OVR_DATA_PRESERVED;
+  LL_ADC_REG_Init(ADC1, &ADC_REG_InitStruct);
+  LL_ADC_SetSamplingTimeCommonChannels(ADC1, LL_ADC_SAMPLINGTIME_1CYCLE_5);
+  LL_ADC_SetOverSamplingScope(ADC1, LL_ADC_OVS_DISABLE);
+  LL_ADC_REG_SetSequencerScanDirection(ADC1, LL_ADC_REG_SEQ_SCAN_DIR_FORWARD);
+  LL_ADC_SetCommonFrequencyMode(__LL_ADC_COMMON_INSTANCE(ADC1), LL_ADC_CLOCK_FREQ_MODE_LOW);
+  LL_ADC_DisableIT_EOC(ADC1);
+  LL_ADC_DisableIT_EOS(ADC1);
+
+   /* Enable ADC internal voltage regulator */
+   LL_ADC_EnableInternalRegulator(ADC1);
+   /* Delay for ADC internal voltage regulator stabilization. */
+   /* Compute number of CPU cycles to wait for, from delay in us. */
+   /* Note: Variable divided by 2 to compensate partially */
+   /* CPU processing cycles (depends on compilation optimization). */
+   /* Note: If system core clock frequency is below 200kHz, wait time */
+   /* is only a few CPU processing cycles. */
+   uint32_t wait_loop_index;
+   wait_loop_index = ((LL_ADC_DELAY_INTERNAL_REGUL_STAB_US * (SystemCoreClock / (100000 * 2))) / 10);
+   while(wait_loop_index != 0)
+     {
+   wait_loop_index--;
+     }
+  ADC_InitStruct.Clock = LL_ADC_CLOCK_SYNC_PCLK_DIV1;
+  ADC_InitStruct.Resolution = LL_ADC_RESOLUTION_12B;
+  ADC_InitStruct.DataAlignment = LL_ADC_DATA_ALIGN_RIGHT;
+  ADC_InitStruct.LowPowerMode = LL_ADC_LP_MODE_NONE;
+  LL_ADC_Init(ADC1, &ADC_InitStruct);
   /* USER CODE BEGIN ADC_Init 2 */
 
   /* USER CODE END ADC_Init 2 */
@@ -276,22 +438,41 @@ static void MX_LPUART1_UART_Init(void)
 
   /* USER CODE END LPUART1_Init 0 */
 
+  LL_LPUART_InitTypeDef LPUART_InitStruct = {0};
+
+  LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  /* Peripheral clock enable */
+  LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_LPUART1);
+
+  LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA);
+  /**LPUART1 GPIO Configuration
+  PA1   ------> LPUART1_TX
+  */
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_1;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_OPENDRAIN;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_UP;
+  GPIO_InitStruct.Alternate = LL_GPIO_AF_6;
+  LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
   /* USER CODE BEGIN LPUART1_Init 1 */
 
   /* USER CODE END LPUART1_Init 1 */
-  hlpuart1.Instance = LPUART1;
-  hlpuart1.Init.BaudRate = 115200;
-  hlpuart1.Init.WordLength = UART_WORDLENGTH_8B;
-  hlpuart1.Init.StopBits = UART_STOPBITS_1;
-  hlpuart1.Init.Parity = UART_PARITY_NONE;
-  hlpuart1.Init.Mode = UART_MODE_TX;
-  hlpuart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  hlpuart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  hlpuart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_HalfDuplex_Init(&hlpuart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  LPUART_InitStruct.BaudRate = 115200;
+  LPUART_InitStruct.DataWidth = LL_LPUART_DATAWIDTH_8B;
+  LPUART_InitStruct.StopBits = LL_LPUART_STOPBITS_1;
+  LPUART_InitStruct.Parity = LL_LPUART_PARITY_NONE;
+  LPUART_InitStruct.TransferDirection = LL_LPUART_DIRECTION_TX;
+  LL_LPUART_Init(LPUART1, &LPUART_InitStruct);
+  LL_LPUART_EnableHalfDuplex(LPUART1);
+  LL_LPUART_DisableRTSHWFlowCtrl(LPUART1);
+  LL_LPUART_DisableIT_CTS(LPUART1);
+  LL_LPUART_EnableCTSHWFlowCtrl(LPUART1);
+  LL_LPUART_DisableIT_ERROR(LPUART1);
+  LL_LPUART_DisableCTSHWFlowCtrl(LPUART1);
+  LL_LPUART_IsActiveFlag_CTS(LPUART1);
   /* USER CODE BEGIN LPUART1_Init 2 */
 
   /* USER CODE END LPUART1_Init 2 */
@@ -351,26 +532,59 @@ static void MX_SPI1_Init(void)
 
   /* USER CODE END SPI1_Init 0 */
 
+  LL_SPI_InitTypeDef SPI_InitStruct = {0};
+
+  LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  /* Peripheral clock enable */
+  LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_SPI1);
+
+  LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA);
+  /**SPI1 GPIO Configuration
+  PA5   ------> SPI1_SCK
+  PA6   ------> SPI1_MISO
+  PA7   ------> SPI1_MOSI
+  */
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_5;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  GPIO_InitStruct.Alternate = LL_GPIO_AF_0;
+  LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_6;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  GPIO_InitStruct.Alternate = LL_GPIO_AF_0;
+  LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_7;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  GPIO_InitStruct.Alternate = LL_GPIO_AF_0;
+  LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
   /* USER CODE BEGIN SPI1_Init 1 */
 
   /* USER CODE END SPI1_Init 1 */
   /* SPI1 parameter configuration*/
-  hspi1.Instance = SPI1;
-  hspi1.Init.Mode = SPI_MODE_MASTER;
-  hspi1.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
-  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
-  hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
-  hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
-  hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-  hspi1.Init.CRCPolynomial = 7;
-  if (HAL_SPI_Init(&hspi1) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  SPI_InitStruct.TransferDirection = LL_SPI_FULL_DUPLEX;
+  SPI_InitStruct.Mode = LL_SPI_MODE_MASTER;
+  SPI_InitStruct.DataWidth = LL_SPI_DATAWIDTH_8BIT;
+  SPI_InitStruct.ClockPolarity = LL_SPI_POLARITY_LOW;
+  SPI_InitStruct.ClockPhase = LL_SPI_PHASE_1EDGE;
+  SPI_InitStruct.NSS = LL_SPI_NSS_SOFT;
+  SPI_InitStruct.BaudRate = LL_SPI_BAUDRATEPRESCALER_DIV2;
+  SPI_InitStruct.BitOrder = LL_SPI_MSB_FIRST;
+  SPI_InitStruct.CRCCalculation = LL_SPI_CRCCALCULATION_DISABLE;
+  SPI_InitStruct.CRCPoly = 7;
+  LL_SPI_Init(SPI1, &SPI_InitStruct);
+  LL_SPI_SetStandard(SPI1, LL_SPI_PROTOCOL_MOTOROLA);
   /* USER CODE BEGIN SPI1_Init 2 */
 
   /* USER CODE END SPI1_Init 2 */
@@ -384,36 +598,56 @@ static void MX_SPI1_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
+  LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA);
+  LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOB);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+  /**/
+  LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, BME_CS_Pin|RFM_CS_Pin, GPIO_PIN_RESET);
+  /**/
+  LL_GPIO_ResetOutputPin(BME_CS_GPIO_Port, BME_CS_Pin);
 
-  /*Configure GPIO pin : RFM_D0_Pin */
+  /**/
+  LL_GPIO_ResetOutputPin(RFM_CS_GPIO_Port, RFM_CS_Pin);
+
+  /**/
   GPIO_InitStruct.Pin = RFM_D0_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(RFM_D0_GPIO_Port, &GPIO_InitStruct);
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  LL_GPIO_Init(RFM_D0_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LED_Pin BME_CS_Pin RFM_CS_Pin */
-  GPIO_InitStruct.Pin = LED_Pin|BME_CS_Pin|RFM_CS_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  /**/
+  GPIO_InitStruct.Pin = LED_Pin;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  LL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : RFM_D5_Pin */
+  /**/
+  GPIO_InitStruct.Pin = BME_CS_Pin;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  LL_GPIO_Init(BME_CS_GPIO_Port, &GPIO_InitStruct);
+
+  /**/
+  GPIO_InitStruct.Pin = RFM_CS_Pin;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  LL_GPIO_Init(RFM_CS_GPIO_Port, &GPIO_InitStruct);
+
+  /**/
   GPIO_InitStruct.Pin = RFM_D5_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(RFM_D5_GPIO_Port, &GPIO_InitStruct);
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  LL_GPIO_Init(RFM_D5_GPIO_Port, &GPIO_InitStruct);
 
 }
 
