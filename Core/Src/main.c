@@ -40,9 +40,13 @@ volatile unsigned long wakeups = 0;
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc;
+
 UART_HandleTypeDef hlpuart1;
 
 RTC_HandleTypeDef hrtc;
+
+SPI_HandleTypeDef hspi1;
 
 /* USER CODE BEGIN PV */
 
@@ -53,6 +57,8 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_LPUART1_UART_Init(void);
 static void MX_RTC_Init(void);
+static void MX_SPI1_Init(void);
+static void MX_ADC_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -114,6 +120,8 @@ int main(void)
   MX_GPIO_Init();
   MX_LPUART1_UART_Init();
   MX_RTC_Init();
+  MX_SPI1_Init();
+  MX_ADC_Init();
   /* USER CODE BEGIN 2 */
   putstr("\nStart");
   unsigned long count = 0;
@@ -137,7 +145,7 @@ int main(void)
     putstr(" standbys:"); putul(standbys);
     HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 
-    if( count > 3 ) {
+    if( count > 7 ) {
       HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR0, ++standbys);
       putstr(" standby "); putul(standbys);
       HAL_PWREx_EnableUltraLowPower();
@@ -203,6 +211,60 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief ADC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC_Init(void)
+{
+
+  /* USER CODE BEGIN ADC_Init 0 */
+
+  /* USER CODE END ADC_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC_Init 1 */
+
+  /* USER CODE END ADC_Init 1 */
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
+  hadc.Instance = ADC1;
+  hadc.Init.OversamplingMode = DISABLE;
+  hadc.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV1;
+  hadc.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc.Init.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  hadc.Init.ScanConvMode = ADC_SCAN_DIRECTION_FORWARD;
+  hadc.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc.Init.ContinuousConvMode = DISABLE;
+  hadc.Init.DiscontinuousConvMode = DISABLE;
+  hadc.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc.Init.DMAContinuousRequests = DISABLE;
+  hadc.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc.Init.LowPowerAutoWait = DISABLE;
+  hadc.Init.LowPowerFrequencyMode = ENABLE;
+  hadc.Init.LowPowerAutoPowerOff = DISABLE;
+  if (HAL_ADC_Init(&hadc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Configure for the selected ADC regular channel to be converted.
+  */
+  sConfig.Channel = ADC_CHANNEL_VREFINT;
+  sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC_Init 2 */
+
+  /* USER CODE END ADC_Init 2 */
+
+}
+
+/**
   * @brief LPUART1 Initialization Function
   * @param None
   * @retval None
@@ -256,7 +318,7 @@ static void MX_RTC_Init(void)
   hrtc.Instance = RTC;
   hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
   hrtc.Init.AsynchPrediv = 127;
-  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.SynchPrediv = 290;
   hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
   hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
   hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
@@ -278,6 +340,44 @@ static void MX_RTC_Init(void)
 }
 
 /**
+  * @brief SPI1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI1_Init(void)
+{
+
+  /* USER CODE BEGIN SPI1_Init 0 */
+
+  /* USER CODE END SPI1_Init 0 */
+
+  /* USER CODE BEGIN SPI1_Init 1 */
+
+  /* USER CODE END SPI1_Init 1 */
+  /* SPI1 parameter configuration*/
+  hspi1.Instance = SPI1;
+  hspi1.Init.Mode = SPI_MODE_MASTER;
+  hspi1.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi1.Init.NSS = SPI_NSS_SOFT;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi1.Init.CRCPolynomial = 7;
+  if (HAL_SPI_Init(&hspi1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI1_Init 2 */
+
+  /* USER CODE END SPI1_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -288,16 +388,32 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
 
-  /*Configure GPIO pin : LED_Pin */
-  GPIO_InitStruct.Pin = LED_Pin;
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, BME_CS_Pin|RFM_CS_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : RFM_D0_Pin */
+  GPIO_InitStruct.Pin = RFM_D0_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(RFM_D0_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : LED_Pin BME_CS_Pin RFM_CS_Pin */
+  GPIO_InitStruct.Pin = LED_Pin|BME_CS_Pin|RFM_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : RFM_D5_Pin */
+  GPIO_InitStruct.Pin = RFM_D5_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(RFM_D5_GPIO_Port, &GPIO_InitStruct);
 
 }
 
