@@ -80,7 +80,6 @@ uint32_t lorawan_send_data(lorawan_t *lorawan, uint8_t *data, unsigned len, uint
   //Define variables
   unsigned char i;
 
-  /*
   // Test flag: if all data[i] == i then don't send but print encrypted data
   int is_test = 1;
   for( i=0; i<len; i++ ) {
@@ -89,7 +88,6 @@ uint32_t lorawan_send_data(lorawan_t *lorawan, uint8_t *data, unsigned len, uint
       break;
     }
   }
-  */
 
   //Direction of frame is up
   unsigned char Direction = 0x00;
@@ -167,16 +165,14 @@ uint32_t lorawan_send_data(lorawan_t *lorawan, uint8_t *data, unsigned len, uint
   //Add MIC length to RFM package length
   RFM_Package_Length += 4;
 
-  /*
   // Print test package
   if( is_test ) {
+    putstr(" encrypted:");
     for( i=0; i<RFM_Package_Length; i++ ) {
-      serial_putx(RFM_Data[i]);
+      puthex(RFM_Data[i]);
     }
-    serial_puts(" = encrypted\n");
     return 0;
   }
-  */
 
   //Send Package
   return rfm95_send(lorawan->rfm95, RFM_Data, RFM_Package_Length);

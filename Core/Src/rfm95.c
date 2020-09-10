@@ -200,7 +200,7 @@ uint32_t rfm95_send( rfm95_t *dev, uint8_t *buffer, uint32_t len ) {
 
   // while (digitalRead(DIO5) == LOW);
   //Wait for TxDone
-  uint16_t max_wait = 200;
+  uint8_t max_wait = 200;
   while (max_wait && !(*dev->pin_read)(dev->dio5_pin_id) ) {
     max_wait--;
     (*dev->delay)(1);
@@ -253,7 +253,7 @@ uint32_t rfm95_send( rfm95_t *dev, uint8_t *buffer, uint32_t len ) {
   rfm95_write(dev, 0x01, 0x83);
 
   //Wait for TxDone
-  max_wait = 2000;
+  max_wait = 200;
   while (max_wait && !(*dev->pin_read)(dev->dio0_pin_id) ) {
     max_wait--;
     (*dev->delay)(1);

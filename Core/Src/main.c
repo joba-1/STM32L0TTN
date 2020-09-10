@@ -125,6 +125,16 @@ void putul( unsigned long u ) {
 }
 
 
+void puthex( uint8_t val ) {
+  static char hex[] = "0123456789abcdef";
+  char msg[3];
+  msg[0] = hex[val >> 4];
+  msg[1] = hex[val & 0xf];
+  msg[3] = '\0';
+  putstr(msg);
+}
+
+
 int8_t duplexSpi(uint8_t dev, uint8_t addr, uint8_t *data, uint16_t len) {
   LL_SPI_Enable(SPI1);
   LL_GPIO_ResetOutputPin(pins[dev].port, pins[dev].pin);
@@ -183,8 +193,6 @@ uint16_t getVdda() {
 
 
 void bme_setup() {
-  LL_GPIO_SetOutputPin(pins[BME280_CS_PIN_ID].port, pins[BME280_CS_PIN_ID].pin);
-
   bme280_dev.dev_id = BME280_CS_PIN_ID;
   bme280_dev.intf = BME280_SPI_INTF;
   bme280_dev.read = duplexSpi;
@@ -243,8 +251,6 @@ void bme_print() {
 
 
 void rfm_setup( uint32_t seed ) {
-  LL_GPIO_SetOutputPin(pins[RFM95_NSS_PIN_ID].port, pins[RFM95_NSS_PIN_ID].pin);
-
   rfm95_dev.nss_pin_id = RFM95_NSS_PIN_ID;
   rfm95_dev.dio0_pin_id = RFM95_DIO0_PIN_ID;
   rfm95_dev.dio5_pin_id = RFM95_DIO5_PIN_ID;
@@ -259,6 +265,16 @@ void rfm_setup( uint32_t seed ) {
 
   lorawan_init(&lorawan, &rfm95_dev);
   lorawan_set_keys(&lorawan, NwkSkey, AppSkey, DevAddr);
+
+  // Print test package
+  if( 0 ) {
+      uint8_t buf[8];
+      for( size_t i=0; i<sizeof(buf); i++ ) {
+        buf[i] = i;
+      }
+
+    lorawan_send_data(&lorawan, buf, sizeof(buf), 0);
+  }
 }
 
 /* USER CODE END 0 */
@@ -295,10 +311,11 @@ int main(void)
   MX_RTC_Init();
   MX_SPI1_Init();
   MX_ADC_Init();
-
   /* USER CODE BEGIN 2 */
 
   LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);
+  LL_GPIO_SetOutputPin(pins[BME280_CS_PIN_ID].port, pins[BME280_CS_PIN_ID].pin);
+  LL_GPIO_SetOutputPin(pins[RFM95_NSS_PIN_ID].port, pins[RFM95_NSS_PIN_ID].pin);
 
   putstr("\nStart");
 
@@ -312,8 +329,8 @@ int main(void)
     putstr(" from reset");
   }
 
-  bme_setup();
   rfm_setup(frame_counter);
+  bme_setup();
 
   /* USER CODE END 2 */
 

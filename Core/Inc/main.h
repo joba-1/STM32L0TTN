@@ -69,6 +69,7 @@ void Error_Handler(void);
 /* USER CODE BEGIN EFP */
 void putstr( const char *str );
 void putul( unsigned long u );
+void puthex( uint8_t val );
 
 /* USER CODE END EFP */
 
