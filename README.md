@@ -48,8 +48,7 @@ He has links to reference, datasheet, errata and more. E.g.:
 * [STM32L011 Datasheet](https://www.st.com/resource/en/datasheet/stm32l011d3.pdf)
 * [STM32L011 Reference](https://www.st.com/resource/en/reference_manual/dm00108282-ultra-low-power-stm32l0x1-advanced-arm-based-32-bit-mcus-stmicroelectronics.pdf)
 * [STM32L011 Errata](https://www.st.com/resource/en/errata_sheet/dm00237371-stm32l011x3-4-device-limitations-stmicroelectronics.pdf)
-
-[Power consumption](http://www.st.com/content/ccc/resource/technical/document/application_note/27/58/8e/81/79/fb/4f/ac/DM00108286.pdf/files/DM00108286.pdf/jcr:content/translations/en.DM00108286.pdf)
+* [Power consumption](http://www.st.com/content/ccc/resource/technical/document/application_note/27/58/8e/81/79/fb/4f/ac/DM00108286.pdf/files/DM00108286.pdf/jcr:content/translations/en.DM00108286.pdf)
 
 ## Power Info Bits
 
@@ -62,7 +61,19 @@ He has links to reference, datasheet, errata and more. E.g.:
 * Set WUTIE bit in RTC_CR to generate interrupt to wake up from low power modes
 * System reset and Sleep, Stop, Standby have no influence on the WUT (wakeup timer)
 * Save Lora frame counter in backup register: Reference 22.7.20 RTC backup registers (RTC_BKPxR)
-* I couldnt make it work with LL lib, had to use big fat HAL for RCC and RTC
+* I couldnt make it work with LL lib, had to use big fat HAL for RCC and RTC. What is missing?
+
+        LL_RTC_DisableWriteProtection(RTC);
+        LL_RTC_WAKEUP_Disable(RTC);
+        while( !LL_RTC_IsActiveFlag_WUTW(RTC) );
+        LL_RTC_WAKEUP_SetClock(RTC, LL_RTC_WAKEUPCLOCK_CKSPRE);
+        LL_RTC_WAKEUP_SetAutoReload(RTC, 3); // wake up every 3+1 s
+        LL_RTC_EnableIT_WUT(RTC);
+        LL_RTC_WAKEUP_Enable(RTC);
+        LL_RTC_EnableWriteProtection(RTC);
+        while( LL_RTC_IsActiveFlag_WUTW(RTC) );
+        LL_RTC_ClearFlag_WUT(RTC);
+        NVIC_ClearPendingIRQ(RTC_IRQn);
 
 ## Status
 
