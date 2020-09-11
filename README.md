@@ -14,7 +14,7 @@ connect Gnd of all components
 
 ### STM32L011
 
-Not checked without, but generally recommended to use a small ceramic (~100nF) and big electrolyt condensator (~100µF) between + and - near STM pins
+Not checked without, but generally recommended to use a small ceramic (~10nF) and big electrolyt condensator (~10µF) between + and - near STM pins
 
 * Look at the ioc file with CubeMX pinout view.
 * Vdd _and_ Vdda to 1.8-3.3V
