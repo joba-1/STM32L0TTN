@@ -6,7 +6,7 @@ Send BME280 data to TTN with STM32L0
 
 * Download and install STM32CubeIDE (as of now version 1.4.2)
 * Import this repo
-* Build Release or Debug
+* Build Release or Debug (RAM 95%, FLASH 88% used)
 
 ## Wiring
 
@@ -20,7 +20,7 @@ Not checked without, but generally recommended to use a small ceramic (~100nF) a
 * Vdd _and_ Vdda to 1.8-3.3V
 * Vss to Gnd
 * Boot0 pulled to Gnd (~10k) to safely boot from flash
-* STLink: SWD, SWC, Gnd, NRst (and could provide Vdd via JP1)
+* STLink for flashing and debug: SWD, SWC, Gnd, NRst (and could provide Vdd via JP1)
 
 ### BME280
 
