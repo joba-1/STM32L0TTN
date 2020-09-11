@@ -42,6 +42,10 @@ typedef struct pins {
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+// no LED and no UART after this frame
+#define QUIET_FRAME 10
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -80,6 +84,7 @@ uint32_t bme280_delay;
 rfm95_t rfm95_dev;
 uint8_t rfm95_ver;
 lorawan_t lorawan;
+uint16_t frame_counter;
 
 /* USER CODE END PV */
 
@@ -98,6 +103,7 @@ static void MX_ADC_Init(void);
 /* USER CODE BEGIN 0 */
 
 void putstr( const char *str ) {
+  if( frame_counter > QUIET_FRAME )  return;
   LL_LPUART_Enable(LPUART1);
   while (*str) {
     while (!LL_LPUART_IsActiveFlag_TXE(LPUART1));
@@ -109,6 +115,7 @@ void putstr( const char *str ) {
 
 
 void putul( unsigned long u ) {
+  if( frame_counter > QUIET_FRAME )  return;
   char num[11];
   char *d = &num[sizeof(num)-1];
   *d = '\0';
@@ -126,11 +133,12 @@ void putul( unsigned long u ) {
 
 
 void puthex( uint8_t val ) {
+  if( frame_counter > QUIET_FRAME )  return;
   static char hex[] = "0123456789abcdef";
   char msg[3];
   msg[0] = hex[val >> 4];
   msg[1] = hex[val & 0xf];
-  msg[3] = '\0';
+  msg[2] = '\0';
   putstr(msg);
 }
 
@@ -313,13 +321,14 @@ int main(void)
   MX_ADC_Init();
   /* USER CODE BEGIN 2 */
 
-  LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);
   LL_GPIO_SetOutputPin(pins[BME280_CS_PIN_ID].port, pins[BME280_CS_PIN_ID].pin);
   LL_GPIO_SetOutputPin(pins[RFM95_NSS_PIN_ID].port, pins[RFM95_NSS_PIN_ID].pin);
 
-  putstr("\nStart");
+  frame_counter = (uint16_t)HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0);
 
-  uint16_t frame_counter = (uint16_t)HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0);
+  if( frame_counter <= QUIET_FRAME ) LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);
+
+  putstr("\nStart");
 
   if(__HAL_PWR_GET_FLAG(PWR_FLAG_SB) != RESET) {
     putstr(" from standby");
@@ -401,7 +410,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
   RCC_OscInitStruct.MSICalibrationValue = 0;
-  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_5;
+  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_4;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -578,7 +587,7 @@ static void MX_RTC_Init(void)
   }
   /** Enable the WakeUp
   */
-  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 10, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
+  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 300, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
   {
     Error_Handler();
   }
