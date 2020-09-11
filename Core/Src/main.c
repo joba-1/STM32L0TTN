@@ -328,7 +328,7 @@ int main(void)
 
   if( frame_counter <= QUIET_FRAME ) LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);
 
-  putstr("\nStart");
+  putstr("\nStart ST32ML0TTN 1.2 " __DATE__ " " __TIME__);
 
   if(__HAL_PWR_GET_FLAG(PWR_FLAG_SB) != RESET) {
     putstr(" from standby");
@@ -349,11 +349,11 @@ int main(void)
   {
     putstr(" standbys:"); putul(frame_counter);
 
-    uint16_t mV = getVdda();
-    putstr(" mV:"); putul(mV);
-
     if( bme_read() ) {
       bme_print();
+
+      uint16_t mV = getVdda();
+      putstr(" mV:"); putul(mV);
 
       uint8_t Data[sizeof(bme280_data)+sizeof(mV)];
       uint8_t *data = Data;
@@ -362,21 +362,27 @@ int main(void)
       data = serialize(data, bme280_data.humidity, sizeof(bme280_data.humidity));
       serialize(data, bme280_data.pressure, sizeof(bme280_data.pressure));
 
-      putstr(" Send ");
+      putstr(" send ");
       putul(lorawan_send_data(&lorawan, Data, sizeof(Data), frame_counter)/1000);
       putstr(" kHz");
     }
 
     LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);
 
+    if( frame_counter == QUIET_FRAME ) {
+      putstr(" continue quietly\n");
+    }
+
     HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR0, ++frame_counter);
+
+    putstr(" wake:"); putul(INTERVAL_S); putstr(" s");
 
     HAL_PWREx_EnableUltraLowPower();
     HAL_PWREx_EnableFastWakeUp();
     __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
     HAL_PWR_EnterSTANDBYMode();
 
-    putstr(" Standby ERROR\n");
+    putstr(" STANDBY ERROR\n");
 
     LL_mDelay(60000);
 
@@ -587,7 +593,7 @@ static void MX_RTC_Init(void)
   }
   /** Enable the WakeUp
   */
-  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 300, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
+  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, INTERVAL_S, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
   {
     Error_Handler();
   }

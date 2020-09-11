@@ -74,6 +74,7 @@ void puthex( uint8_t val );
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define INTERVAL_S 300
 #define RFM_D0_Pin LL_GPIO_PIN_0
 #define RFM_D0_GPIO_Port GPIOA
 #define LED_Pin LL_GPIO_PIN_2
