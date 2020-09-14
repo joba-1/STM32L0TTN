@@ -5,3 +5,5 @@
 /STM32L011F4PX_FLASH.ld
 Core/Inc/secconfig.h
 /README.md.backup
+/.mxproject
+/.settings/language.settings.xml
