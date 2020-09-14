@@ -6,7 +6,8 @@ Send BME280 data to TTN with STM32L0
 
 * Download and install STM32CubeIDE (as of now version 1.4.2)
 * Import this repo
-* Build Release or Debug (RAM 95%, FLASH 88% used)
+* Open .ioc file and select "Project/Generate Code" (should download needed "firmware" files for the chip from ST)
+* Build Release or Debug (currently RAM 95%, FLASH 88% used)
 
 ## Wiring
 
