@@ -7,3 +7,5 @@ Core/Inc/secconfig.h
 /README.md.backup
 /.mxproject
 /.settings/language.settings.xml
+*.bak
+*-bak
