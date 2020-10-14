@@ -326,9 +326,15 @@ int main(void)
 
   frame_counter = (uint16_t)HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0);
 
-  if( frame_counter <= QUIET_FRAME ) LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);
+  // After a few standby cycles don't waste power on led
+  if( frame_counter <= QUIET_FRAME ) {
+    LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);
+  }
 
-  putstr("\nStart ST32ML0TTN 1.2 " __DATE__ " " __TIME__);
+  putstr("\nStart ST32ML0TTN 1.2 " __DATE__ " " __TIME__ " device 0x");
+  for( unsigned i = 0; i < 4; i++ ) {
+    puthex(DevAddr[i]);
+  }
 
   if(__HAL_PWR_GET_FLAG(PWR_FLAG_SB) != RESET) {
     putstr(" from standby");
@@ -336,6 +342,9 @@ int main(void)
   }
   else {
     putstr(" from reset");
+    // At first power on give a button cell a bit of time
+    // to charge a capacitor before sending something to prevent boot loop
+    LL_mDelay(5000);
   }
 
   rfm_setup(frame_counter);
