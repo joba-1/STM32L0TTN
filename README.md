@@ -78,8 +78,12 @@ He has links to reference, datasheet, errata and more. E.g.:
 
 ## Status
 
-Works fine. 
-Power consumption to be measured, but I expect it is lower than with ATTiny84
+Works fine.
+Power consumption much lower than with my similar ATTiny84 board
+
+![Bildschirmfoto von 2021-08-20 11-51-18](https://user-images.githubusercontent.com/32450554/130215898-25305e28-8d08-4e3f-8a16-b70d2e87ce26.png)
+
+Unfortunately it seems TTN will throw me out in september and I'm not sure I find the time and am able to support enough of lorawan on this chip until then to stay with them :(
 
 ## Todo
 
