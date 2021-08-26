@@ -34,6 +34,9 @@ Not checked without, but generally recommended to use a small ceramic (~10nF) an
 * Ant=~8cm wire (vary length and position to get best average RSSI as reported by TTN)
 * NSS=CS, others should be obvious (DIO0, DIO5, MOSI, MISO, SCK and RESET)
 
+RFM95W pin labels for reuse of ESP32 adapter breadboard
+![image](https://user-images.githubusercontent.com/32450554/130999682-5b1fd090-4951-47cc-89e3-87a70b8aead5.png)
+
 ### Serial
 
 Rx of a usb to serial converter sends at 115200. I use this command (serial port name ttyUSB_ser_red is defined in my /etc/udev/rules.d)
