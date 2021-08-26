@@ -17,6 +17,8 @@ connect Gnd of all components
 
 Not checked without, but generally recommended to use a small ceramic (~10nF) and big electrolyt condensator (~10µF) between + and - near STM pins
 
+![image](https://user-images.githubusercontent.com/32450554/130995507-a8109346-f09b-417d-b519-a5dc06214890.png)
+
 * Look at the ioc file with CubeMX pinout view.
 * Vdd _and_ Vdda to 1.8-3.3V
 * Vss to Gnd
@@ -30,7 +32,7 @@ Not checked without, but generally recommended to use a small ceramic (~10nF) an
 ### RFM95W
 
 * Ant=~8cm wire (vary length and position to get best average RSSI as reported by TTN)
-* NSS=CS, others should be obvious
+* NSS=CS, others should be obvious (DIO0, DIO5, MOSI, MISO, SCK and RESET)
 
 ### Serial
 
