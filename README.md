@@ -1,6 +1,6 @@
 # STM32L0TTN
 
-Send BME280 data to TTN with STM32L0
+Send BME280 data and voltage to TTN with STM32L0
 
 ## Build
 
@@ -22,7 +22,7 @@ Not checked without, but generally recommended to use a small ceramic (~10nF) an
 * Look at the ioc file with CubeMX pinout view.
 * Vdd _and_ Vdda to 1.8-3.3V
 * Vss to Gnd
-* Boot0 pulled to Gnd (~10k) to safely boot from flash
+* PB9-Boot0 pulled to Gnd (~10k) to safely boot from flash
 * STLink for flashing and debug: SWD, SWC, Gnd, NRst (and could provide Vdd via JP1)
 
 ### BME280
@@ -34,7 +34,7 @@ Not checked without, but generally recommended to use a small ceramic (~10nF) an
 * Ant=~8cm wire (vary length and position to get best average RSSI as reported by TTN)
 * NSS=CS, others should be obvious (DIO0, DIO5, MOSI, MISO, SCK and RESET)
 
-RFM95W pin labels for reuse of ESP32 adapter breadboard
+RFM95W pin labels for reuse of ESP32 adapter breadboard (print with 600dpi)
 ![image](https://user-images.githubusercontent.com/32450554/130999682-5b1fd090-4951-47cc-89e3-87a70b8aead5.png)
 
 ### Serial
@@ -90,10 +90,13 @@ Power consumption much lower than with my similar ATTiny84 board
 
 Unfortunately it seems TTN will throw me out in september and I'm not sure I find the time and am able to support enough of lorawan on this chip until then to stay with them :(
 
-## Todo
-
+## Done
+Not needed. by far the most power is consumed by sending. These tasks are not relevant
 * Sleep while waiting for sensor or transmitter (90% of the ~100ms active cycle is waiting)
 * Cut power of sensor and transmitter between measurements? Standby consumption is already quite low.
+Works fine for a long time now. No problems so far
 * Check recommended hookup of STM32L011K4 (capacitors, boot mode lines, reset, ...?). Since it works, it is probably ok as described above :)
-* PCBs for coin cell or 2xAAA
+
+## Todo
+* PCBs for coin cell or 2xAAA: coin cell not at all good at low temp -> abandoned for BMP280 (outdoor) variants
 * 3D-printed housings
