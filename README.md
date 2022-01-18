@@ -88,7 +88,8 @@ Power consumption much lower than with my similar ATTiny84 board
 
 ![Bildschirmfoto von 2021-08-20 11-51-18](https://user-images.githubusercontent.com/32450554/130215898-25305e28-8d08-4e3f-8a16-b70d2e87ce26.png)
 
-Unfortunately it seems TTN will throw me out in september and I'm not sure I find the time and am able to support enough of lorawan on this chip until then to stay with them :(
+TTN migrated from V2 to V3. After they reactivated the device id ranges of the old network I could register the devices with the same devId, AppsKey and NwsKey.
+After ~2 weeks the devices started showing up in the console -> code works unchanged with V3! Config example in this post: https://www.thethingsnetwork.org/forum/t/migrate-old-abp-device-to-v3
 
 ## Done
 Not needed. by far the most power is consumed by sending. These tasks are not relevant
